@@ -1,4 +1,4 @@
-![Presentation](https://i.imgur.com/esCwk1l.png)
+![Presentation](./src/public/mini-react.png)
 
 # Mini-React
 
