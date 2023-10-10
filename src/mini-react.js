@@ -412,10 +412,10 @@ void (function main() {
   window.requestIdleCallback(workLoop);
 })();
 
-export default {
+export default (window.React = {
   createElement,
   render,
   useState,
   Component,
   Fragment,
-};
+});
