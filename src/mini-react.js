@@ -1,13 +1,15 @@
-let wipRoot = null;
-let nextUnitOfWork = null;
-let currentRoot = null;
+let wipRoot = null; //wipRoot是当前组件的根（虚拟节点的）
+let nextUnitOfWork = null; //在 render 阶段，开启每一个 unit 的工作
+let currentRoot = null; //保存真实的DOM节点
 let deletions = [];
-let wipFiber;
+let wipFiber; //wipFiber是整个应用的 根，wipRoot是当前组件的根，wipFiber包括wipRoot
 let hookIndex = 0;
 // Support React.Fragment syntax.
 const Fragment = Symbol.for('react.fragment');
 
 // Enhanced requestIdleCallback.
+//requestIdle Callback，但是 React 并没有直接使用这个 API ，
+//而是自行实现了一个功能更加完备的 requestIdleCallback 的 polyfill，也就是 Scheduler。(MessageChannel)
 ((global) => {
   const id = 1;
   const fps = 1e3 / 60;
@@ -51,7 +53,7 @@ const createTextElement = (text) => ({
   type: 'TEXT',
   props: {
     nodeValue: text,
-    children: []
+    children: [],
   },
 });
 
@@ -118,6 +120,7 @@ const createDOM = (fiberNode) => {
 // Change the DOM based on fiber node changes.
 // Note that we must complete the comparison of all fiber nodes before commitRoot.
 // The comparison of fiber nodes can be interrupted, but the commitRoot cannot be interrupted.
+//* Step 4: diff完了操作真实DOM
 const commitRoot = () => {
   const findParentFiber = (fiberNode) => {
     if (fiberNode) {
@@ -149,10 +152,10 @@ const commitRoot = () => {
         const parentFiber = findParentFiber(fiberNode);
         const parentDOM = parentFiber?.dom;
         switch (fiberNode.effectTag) {
-          case 'REPLACEMENT':
+          case 'REPLACEMENT': //插入新节点
             commitReplacement(parentDOM, fiberNode.dom);
             break;
-          case 'UPDATE':
+          case 'UPDATE': //更新
             updateDOM(
               fiberNode.dom,
               fiberNode.alternate ? fiberNode.alternate.props : {},
@@ -164,12 +167,13 @@ const commitRoot = () => {
         }
       }
 
-      commitWork(fiberNode.child);
-      commitWork(fiberNode.sibling);
+      commitWork(fiberNode.child); //操作孩子
+      commitWork(fiberNode.sibling); //操作兄弟节点
     }
   };
 
   for (const deletion of deletions) {
+    //删除无用的节点
     if (deletion.dom) {
       const parentFiber = findParentFiber(deletion);
       commitDeletion(parentFiber?.dom, deletion.dom);
@@ -177,7 +181,7 @@ const commitRoot = () => {
   }
 
   if (wipRoot !== null) {
-    commitWork(wipRoot.child);
+    commitWork(wipRoot.child); //经过 commitWork 过的节点是真实DOM，那么就相当于是 alternate 属性
     currentRoot = wipRoot;
   }
 
@@ -185,7 +189,9 @@ const commitRoot = () => {
 };
 
 // Reconcile the fiber nodes before and after, compare and record the differences.
+//* 处理初次渲染和更新 DIFF
 const reconcileChildren = (fiberNode, elements = []) => {
+  //参数 fiberNode：每一个fiber单元(虚拟节点)
   let index = 0;
   let oldFiberNode = void 0;
   let prevSibling = void 0;
@@ -199,7 +205,7 @@ const reconcileChildren = (fiberNode, elements = []) => {
     index < virtualElements.length ||
     typeof oldFiberNode !== 'undefined'
   ) {
-    const virtualElement = virtualElements[index];
+    const virtualElement = virtualElements[index]; //真实的子节点
     let newFiber = void 0;
     const isSameType = Boolean(
       oldFiberNode &&
@@ -208,6 +214,7 @@ const reconcileChildren = (fiberNode, elements = []) => {
     );
 
     if (isSameType && oldFiberNode) {
+      // update the node
       newFiber = {
         type: oldFiberNode.type,
         dom: oldFiberNode.dom,
@@ -219,6 +226,7 @@ const reconcileChildren = (fiberNode, elements = []) => {
     }
 
     if (!isSameType && Boolean(virtualElement)) {
+      // add this node
       newFiber = {
         type: virtualElement.type,
         dom: null,
@@ -230,6 +238,7 @@ const reconcileChildren = (fiberNode, elements = []) => {
     }
 
     if (!isSameType && oldFiberNode) {
+      // delete the oldFiber's node
       deletions.push(oldFiberNode);
     }
 
@@ -250,7 +259,12 @@ const reconcileChildren = (fiberNode, elements = []) => {
 
 // Execute each unit task and return to the next unit task.
 // Different processing according to the type of fiber node.
+//* Step 3.2: 执行每一个 unit 的工作
 const performUnitOfWork = (fiberNode) => {
+  // 每一个 performUnitOfWork 有三件事需要做
+  //1. add the element to the DOM
+  //2. create the fibers for the element’s children
+  //3. select the next unit of work
   const { type } = fiberNode;
 
   switch (typeof type) {
@@ -272,6 +286,7 @@ const performUnitOfWork = (fiberNode) => {
         children = type(fiberNode.props);
       }
       reconcileChildren(fiberNode, [
+        //不仅负责初始化也负责更新
         isVirtualElement(children)
           ? children
           : createTextElement(String(children)),
@@ -282,9 +297,9 @@ const performUnitOfWork = (fiberNode) => {
     case 'number':
     case 'string':
       if (!fiberNode.dom) {
-        fiberNode.dom = createDOM(fiberNode);
+        fiberNode.dom = createDOM(fiberNode); //如果是初次渲染，add the element to the DOM
       }
-      reconcileChildren(fiberNode, fiberNode.props.children);
+      reconcileChildren(fiberNode, fiberNode.props.children); //不仅负责初始化也负责更新
       break;
 
     case 'symbol':
@@ -301,17 +316,17 @@ const performUnitOfWork = (fiberNode) => {
   }
 
   if (fiberNode.child) {
-    return fiberNode.child;
+    return fiberNode.child; // 返回下一个 nextUnitOfWork
   }
 
   let nextFiberNode = fiberNode;
 
   while (typeof nextFiberNode !== 'undefined') {
     if (nextFiberNode.sibling) {
-      return nextFiberNode.sibling;
+      return nextFiberNode.sibling; // 返回下一个 nextUnitOfWork
     }
 
-    nextFiberNode = nextFiberNode.return;
+    nextFiberNode = nextFiberNode.return; //相当于  nextFiber = nextFiber.parent （走完兄弟节点回到父节点）
   }
 
   return null;
@@ -319,12 +334,16 @@ const performUnitOfWork = (fiberNode) => {
 
 // Use requestIdleCallback to query whether there is currently a unit task
 // and determine whether the DOM needs to be updated.
+//* Step 3.1: use requestIdleCallback to make a loop.
 const workLoop = (deadline) => {
+  // deadline.timeRemaining() 检测当前帧渲染的剩余时间，大于1ms就执行
   while (nextUnitOfWork && deadline.timeRemaining() > 1) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+    // performUnitOfWork 不仅执行当前的 unitOfWork, 也返回下一个 nextUnitOfWork
   }
 
   if (!nextUnitOfWork && wipRoot) {
+    // 如果没有nextUnitOfWork，说明 协调阶段（render）结束，进入 提交阶段（commit），即进行 DIFF 算法
     commitRoot();
   }
 
@@ -336,6 +355,7 @@ const workLoop = (deadline) => {
 const render = (element, container) => {
   currentRoot = null;
   wipRoot = {
+    //* 设置 wipRoot 和 nextUnitOfWork
     type: 'div',
     dom: container,
     props: {
@@ -345,7 +365,7 @@ const render = (element, container) => {
         },
       ],
     },
-    alternate: currentRoot,
+    alternate: currentRoot, //alternate 属性指向当前的真实DOM
   };
   nextUnitOfWork = wipRoot;
   deletions = [];
@@ -407,7 +427,8 @@ class Component {
   static REACT_COMPONENT = true;
 }
 
-// Start the engine!
+//? Start the engine!
+//* Step 3.3: use requestIdleCallback to make a loop
 void (function main() {
   window.requestIdleCallback(workLoop);
 })();
